@@ -40,8 +40,8 @@ import face_preprocess
 gpu_memory_fraction = 0.3
 
 def main():
-    model = "20190128-123456/3001w-train.pb"
-    traindata_path = "../data/gump"
+    model = "123456/3001w-train.pb"
+    traindata_path = "../data/image"
     feature_files = []
     face_label = []
     face_detection = Detection()
@@ -67,7 +67,7 @@ def main():
                     feature_files.append(emb)
                 else:
                     print('no find face')
-            write_file = open('20190128-123456/knn_classifier.pkl', 'wb')
+            write_file = open('123456/knn_classifier.pkl', 'wb')
             pickle.dump(feature_files, write_file, -1)
             pickle.dump(face_label, write_file, -1)
             write_file.close()

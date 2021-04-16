@@ -26,12 +26,7 @@ Based on code from https://github.com/shanren7/real_time_face_recognition
 # SOFTWARE.
 import cv2
 import face
-import os
-import cv2 as cv
-import argparse
-import sys
 import numpy as np
-import time
 import numpy
 from PIL import Image, ImageDraw, ImageFont
 
@@ -68,7 +63,7 @@ def getOutputsNames(net):
 
 
 # Draw the predicted bounding box
-def drawPred(frame,classId, conf, left, top, right, bottom):
+def drawPred(frame, classId, conf, left, top, right, bottom):
     # Draw a bounding box.
     #    cv.rectangle(frame, (left, top), (right, bottom), (255, 178, 50), 3)
     cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 3)
@@ -84,7 +79,7 @@ def drawPred(frame,classId, conf, left, top, right, bottom):
     labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
     top = max(top, labelSize[1])
     cv2.rectangle(frame, (left, top - round(1.5 * labelSize[1])), (left + round(1.5 * labelSize[0]), top + baseLine),
-                 (0, 0, 255), cv2.FILLED)
+                  (0, 0, 255), cv2.FILLED)
     cv2.putText(frame, label, (left, top), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 2)
 
 
@@ -95,6 +90,7 @@ def postprocess(frame, outs):
     classIds = []
     confidences = []
     boxes = []
+    global mes
     for out in outs:
         # print("out.shape : ", out.shape)
         for detection in out:
@@ -127,13 +123,12 @@ def postprocess(frame, outs):
         top = box[1]
         width = box[2]
         height = box[3]
-        drawPred(frame,classIds[i], confidences[i], left, top, left + width, top + height)
-
+        drawPred(frame, classIds[i], confidences[i], left, top, left + width, top + height)
 
 def add_overlays(image, faces):
     if faces is not None:
         img_PIL = Image.fromarray(image)
-        font = ImageFont.truetype('simsun.ttc', 200)
+        font = ImageFont.truetype('sims.ttc', 200)
         # 字体颜色
         fillColor1 = (255, 0, 0)
         fillColor2 = (0, 255, 0)
@@ -153,35 +148,100 @@ def add_overlays(image, faces):
         return frame
 
 
-def main():
-    testdata_path = '../images'
+# def main():
+#     testdata_path = '../images'
+#     face_recognition = face.Recognition()
+#     start_time = time.time()
+#     for images in os.listdir(testdata_path):
+#         print(images)
+#         filename = os.path.splitext(os.path.split(images)[1])[0]
+#         file_path = testdata_path + "/" + images
+#         image = cv2.imread(file_path)
+#         faceframe = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+#         faces = face_recognition.identify(faceframe)
+#         frame = add_overlays(image, faces)
+#
+#         blob = cv2.dnn.blobFromImage(frame, 1 / 255, (inpWidth, inpHeight), [0, 0, 0], 1, crop=False)
+#
+#         # Sets the input to the network
+#         net.setInput(blob)
+#
+#         # Runs the forward pass to get output of the output layers
+#         outs = net.forward(getOutputsNames(net))
+#         print(outs)
+#         # Remove the bounding boxes with low confidence
+#         postprocess(frame, outs)
+#
+#
+#         cv2.imwrite('../images_result/' + filename + '.jpg', frame)
+#     end_time = time.time()
+#     spend_time = float('%.2f' % (end_time - start_time))
+#     print('spend_time:', spend_time)
+
+def getpredits(frame, outs):
+    frameHeight = frame.shape[0]
+    frameWidth = frame.shape[1]
+    classIds = []
+    confidences = []
+    boxes = []
+    for out in outs:
+        for detection in out:
+            # if detection[4]>0.001:
+            scores = detection[5:]
+            classId = np.argmax(scores)
+            # if scores[classId]>confThreshold:
+            confidence = scores[classId]
+            if detection[4] > confThreshold:
+                print(detection[4], " - ", scores[classId], " - th : ", confThreshold)
+                # print(detection)
+            if confidence > confThreshold:
+                center_x = int(detection[0] * frameWidth)
+                center_y = int(detection[1] * frameHeight)
+                width = int(detection[2] * frameWidth)
+                height = int(detection[3] * frameHeight)
+                left = int(center_x - width / 2)
+                top = int(center_y - height / 2)
+                classIds.append(classId)
+                confidences.append(float(confidence))
+                boxes.append([left, top, width, height])
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, confThreshold, nmsThreshold)
+    for i in indices:
+        i = i[0]
+        return classIds[i]
+
+def getimage(inputpath, outputpath):
     face_recognition = face.Recognition()
-    start_time = time.time()
-    for images in os.listdir(testdata_path):
-        print(images)
-        filename = os.path.splitext(os.path.split(images)[1])[0]
-        file_path = testdata_path + "/" + images
-        image = cv2.imread(file_path)
-        faceframe = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        faces = face_recognition.identify(faceframe)
-        frame = add_overlays(image, faces)
+    image = cv2.imread(inputpath)
+    faceframe = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    faces = face_recognition.identify(faceframe)
+    frame = add_overlays(image, faces)
 
-        blob = cv2.dnn.blobFromImage(frame, 1 / 255, (inpWidth, inpHeight), [0, 0, 0], 1, crop=False)
+    blob = cv2.dnn.blobFromImage(frame, 1 / 255, (inpWidth, inpHeight), [0, 0, 0], 1, crop=False)
+    # Sets the input to the network
+    net.setInput(blob)
+    outs = net.forward(getOutputsNames(net))
+    postprocess(frame, outs)
+    cv2.imwrite(outputpath, frame)
 
-        # Sets the input to the network
-        net.setInput(blob)
 
-        # Runs the forward pass to get output of the output layers
-        outs = net.forward(getOutputsNames(net))
-
-        # Remove the bounding boxes with low confidence
-        postprocess(frame, outs)
-
-        cv2.imwrite('../images_result/' + filename + '.jpg', frame)
-    end_time = time.time()
-    spend_time = float('%.2f' % (end_time - start_time))
-    print('spend_time:', spend_time)
+def getclassids(inputpath):
+    face_recognition = face.Recognition()
+    image = cv2.imread(inputpath)
+    faceframe = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    faces = face_recognition.identify(faceframe)
+    frame = add_overlays(image, faces)
+    blob = cv2.dnn.blobFromImage(frame, 1 / 255, (inpWidth, inpHeight), [0, 0, 0], 1, crop=False)
+    net.setInput(blob)
+    outs = net.forward(getOutputsNames(net))
+    return getpredits(frame, outs)
 
 
 if __name__ == '__main__':
-    main()
+    # getimage(r"C:\\Users\\yu146\\PycharmProjects\\FaceRec_cyu3\\src\\outRes\\2021-04-15-09-57-58.jpg",
+    #          r"C:\\Users\\yu146\\PycharmProjects\\FaceRec_cyu3\\src\\outRes_result\\2021-04-15-09-57-58.jpg")
+    #getclassids(r"C:\\Users\\yu146\\PycharmProjects\\FaceRec_cyu3\\src\\outRes\\2021-04-15-09-57-58.jpg")
+    #print(getclassids(r"C:\\Users\\yu146\\PycharmProjects\\FaceRec_cyu3\\src\\inRes\\2021-04-16-13-18-17.jpg"))
+    print(type(getclassids(r"C:\\Users\\yu146\\PycharmProjects\\FaceRec_cyu3\\src\\inRes\\2021-04-16-14-23-52.jpg")))
+    # getimage(r"C:\\Users\\yu146\\PycharmProjects\\FaceRec_cyu3\\src\\inRes\\2021-04-16-13-18-17.jpg",
+    #          r"C:\\Users\\yu146\\PycharmProjects\\FaceRec_cyu3\\src\\inRes_result\\2021-04-16-13-18-17.jpg")
+    # main()

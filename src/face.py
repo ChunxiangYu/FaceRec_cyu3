@@ -42,8 +42,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'common'))
 import face_preprocess
 
 gpu_memory_fraction = 0.3
-facenet_model_checkpoint = os.path.dirname(__file__) + "/20190128-123456/3001w-train.pb"
-classifier_model = os.path.dirname(__file__) + "/20190128-123456/knn_classifier.pkl"  # 模型不同，提取的特征向量不同
+facenet_model_checkpoint = os.path.dirname(__file__) + "/123456/3001w-train.pb"
+classifier_model = os.path.dirname(__file__) + "/123456/knn_classifier.pkl"  # 模型不同，提取的特征向量不同
 
 
 class Face:

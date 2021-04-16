@@ -29,14 +29,22 @@ import cv2
 import os
 import face
 import sys
+import requests
+import base64
+import hashlib
+import datetime
 import facenet
-import src.align.detect_face
+import align.detect_face
 import numpy
 import pickle
 from scipy import misc
 import tensorflow as tf
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+import time
+import requests
+import json
+import imageRec
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'common'))
 add_name = ''
@@ -45,6 +53,7 @@ from PyQt5.QtWidgets import QMessageBox
 
 
 class Ui_MainWindow(QtWidgets.QWidget):
+
     def __init__(self, parent=None):
         super(Ui_MainWindow, self).__init__(parent)
 
@@ -60,6 +69,139 @@ class Ui_MainWindow(QtWidgets.QWidget):
         self.__flag_work = 0
         self.x = 0
 
+        self.CORPID = 'wwe977300792ec127b'
+        self.CORPSECRET = 'hauIpGrKIQNlt_6GB7eMNX2zoqJdt_5ukJhPhdh5NZc'
+        self.AGENTID = '1000002'
+        self.TOUSER = "YuChunXiang"  # 接收者用户名,多个用户用|分割
+
+        modelConfiguration = "model/yolov3.cfg";
+        modelWeights = "model/yolov3.weights";
+        net = cv2.dnn.readNetFromDarknet(modelConfiguration, modelWeights)
+        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+
+    def _get_access_token(self):
+        url = 'https://qyapi.weixin.qq.com/cgi-bin/gettoken'
+        values = {'corpid': self.CORPID,
+                  'corpsecret': self.CORPSECRET,
+                  }
+        req = requests.post(url, params=values)
+        data = json.loads(req.text)
+        return data["access_token"]
+
+    def get_access_token(self):
+        try:
+            with open('./tmp/access_token.conf', 'r') as f:
+                t, access_token = f.read().split()
+        except:
+            with open('./tmp/access_token.conf', 'w') as f:
+                access_token = self._get_access_token()
+                cur_time = time.time()
+                f.write('\t'.join([str(cur_time), access_token]))
+                return access_token
+        else:
+            cur_time = time.time()
+            if 0 < cur_time - float(t) < 7260:
+                return access_token
+            else:
+                with open('./tmp/access_token.conf', 'w') as f:
+                    access_token = self._get_access_token()
+                    f.write('\t'.join([str(cur_time), access_token]))
+                    return access_token
+
+    def send_msg(self, message):
+        send_url = 'https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=' + self.get_access_token()
+        send_values = {
+            "touser": self.TOUSER,
+            "msgtype": "text",
+            "agentid": self.AGENTID,
+            "text": {
+                "content": message
+            },
+            "safe": "0"
+        }
+        send_msges = (bytes(json.dumps(send_values), 'utf-8'))
+        respone = requests.post(send_url, send_msges)
+        respone = respone.json()  # 当返回的数据是json串的时候直接用.json即可将respone转换成字典
+        return respone["errmsg"]
+
+    def send_msg_txt(self, username, status):
+        headers = {"Content-Type": "text/plain"}
+        send_url = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=7a32f71c-696a-410b-aba6-297a093fb534"
+        curr_time = datetime.datetime.now()
+        time_str = curr_time.strftime("%Y-%m-%d-%H:%M:%S")
+        if username == '陌生人':
+            des = "\n不存在于人脸库中，禁止通过!"
+        else:
+            if str(status) == '0':
+                des = "\n检测到佩戴口罩\n存在于人脸库中，允许通过."
+            else:
+                des = "\n警告，检测到未佩戴口罩\n存在于人脸库中，请佩戴口罩后通过."
+
+        send_data = {
+            "msgtype": "text",  # 消息类型，此时固定为text
+            "text": {
+                "content": "检测到人脸，身份为 " + username + "\n现在是" + time_str + des,  # 文本内容，最长不超过2048个字节，必须是utf8编码
+                # "mentioned_list": ["@all"],
+                # # userid的列表，提醒群中的指定成员(@某个成员)，@all表示提醒所有人，如果开发者获取不到userid，可以使用mentioned_mobile_list
+                # "mentioned_mobile_list": ["@all"]  # 手机号列表，提醒手机号对应的群成员(@某个成员)，@all表示提醒所有人
+            }
+        }
+
+        res = requests.post(url=send_url, headers=headers, json=send_data)
+        print(res.text)
+
+    def send_msg_txt_img(self, username, imagename):
+        headers = {"Content-Type": "text/plain"}
+        send_url = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=7a32f71c-696a-410b-aba6-297a093fb534'
+        curr_time = datetime.datetime.now()
+        time_str = curr_time.strftime("%Y-%m-%d-%H:%M:%S")
+        imagepath = './inRes/' + imagename + ".jpg"
+        if username == '陌生人':
+            des = "\n不存在于人脸库中，禁止通过!"
+        else:
+            des = "\n存在于人脸库中，允许通过。 :)"
+        send_data = {
+            "msgtype": "news",  # 消息类型，此时固定为news
+            "news": {
+                "articles": [  # 图文消息，一个图文消息支持1到8条图文
+                    {
+                        "title": "检测到人脸，身份为 " + username,  # 标题，不超过128个字节
+                        "description": "现在是" + time_str + des,  # 描述，不超过512个字节
+                        "url": "www.google.com",  # 点击后跳转的链接。
+                        "picurl": imagepath
+                        # 图文消息的图片链接，支持JPG、PNG格式，较好的效果为大图 1068*455，小图150*150。
+                    },
+                ]
+            }
+        }
+
+        res = requests.post(url=send_url, headers=headers, json=send_data)
+        print(res.text)
+
+    def send_image(self, image):
+        with open(image, 'rb') as file:  # 转换图片成base64格式
+            data = file.read()
+            encodestr = base64.b64encode(data)
+            image_data = str(encodestr, 'utf-8')
+
+        with open(image, 'rb') as file:  # 图片的MD5值
+            md = hashlib.md5()
+            md.update(file.read())
+            image_md5 = md.hexdigest()
+
+        url = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=7a32f71c-696a-410b-aba6-297a093fb534"  # 填上机器人Webhook地址
+        headers = {"Content-Type": "application/json"}
+        data = {
+            "msgtype": "image",
+            "image": {
+                "base64": image_data,
+                "md5": image_md5
+            }
+        }
+        result = requests.post(url, headers=headers, json=data)
+        return result
+
     def set_ui(self):
 
         self.__layout_main = QtWidgets.QHBoxLayout()
@@ -70,18 +212,17 @@ class Ui_MainWindow(QtWidgets.QWidget):
         self.addface = QtWidgets.QPushButton(u'建库')
         self.captureface = QtWidgets.QPushButton(u'采集人脸')
         self.saveface = QtWidgets.QPushButton(u'保存人脸')
-        self.readImg = QtWidgets.QPushButton(u'读取本地图像')
         self.opencamera.setMinimumHeight(50)
         self.addface.setMinimumHeight(50)
         self.captureface.setMinimumHeight(50)
         self.saveface.setMinimumHeight(50)
         self.lineEdit = QtWidgets.QLineEdit(self)  # 创建 QLineEdit
-        # self.lineEdit.textChanged.connect(self.text_changed)
+        self.lineEdit.textChanged.connect(self.text_changed)
         self.lineEdit.setMinimumHeight(50)
 
         # self.opencamera.move(10, 30)
         # self.captureface.move(10, 50)
-        self.lineEdit.move(15,350)
+        self.lineEdit.move(15, 350)
 
         # 信息显示
         self.showcamera = QtWidgets.QLabel()
@@ -95,7 +236,7 @@ class Ui_MainWindow(QtWidgets.QWidget):
         self.__layout_fun_button.addWidget(self.addface)
         self.__layout_fun_button.addWidget(self.captureface)
         self.__layout_fun_button.addWidget(self.saveface)
-        self.__layout_fun_button.addWidget(self.readImg)
+
         self.__layout_main.addLayout(self.__layout_fun_button)
         self.__layout_main.addWidget(self.showcamera)
 
@@ -114,7 +255,7 @@ class Ui_MainWindow(QtWidgets.QWidget):
     def text_changed(self):
         global add_name
         add_name = self.lineEdit.text()
-        print(u'文本框此刻输入的内容是：%s' % add_name)
+        print(u'姓名为：%s' % add_name)
 
     def button_open_camera_click(self):
         self.timer_camera_capture.stop()
@@ -148,12 +289,15 @@ class Ui_MainWindow(QtWidgets.QWidget):
         faces = self.face_recognition.identify(show)
         if faces is not None:
             if faces is not None:
-                img_pil = Image.fromarray(show)
+                img_PIL = Image.fromarray(show)
                 font = ImageFont.truetype('simsun.ttc', 40)
-
-                fill_color1 = (255, 0, 0)
-                fill_color2 = (0, 255, 0)
-                draw = ImageDraw.Draw(img_pil)
+                # 字体颜色
+                fillColor1 = (255, 0, 0)
+                fillColor2 = (0, 255, 0)
+                self.images = self.cap.read()
+                curr_time = datetime.datetime.now()
+                name_str = curr_time.strftime("%Y-%m-%d-%H-%M-%S")
+                draw = ImageDraw.Draw(img_PIL)
                 for face in faces:
                     face_bb = face.bounding_box.astype(int)
                     draw.line([face_bb[0], face_bb[1], face_bb[2], face_bb[1]], "green")
@@ -162,21 +306,35 @@ class Ui_MainWindow(QtWidgets.QWidget):
                     draw.line([face_bb[2], face_bb[1], face_bb[2], face_bb[3]], "black")
                     if face.name is not None:
                         if face.name == 'unknown':
-                            draw.text((face_bb[0], face_bb[1]), '陌生人', font=font, fill=fill_color2)
+                            draw.text((face_bb[0], face_bb[1]), '陌生人', font=font, fill=fillColor2)
+                            ret, frame = self.cap.read()
+                            cv2.imwrite(r'./outRes/' + name_str + ".jpg", frame)
+                            imageRec.getimage(r'./outRes/' + name_str + ".jpg", r'./outRes_result/' + name_str + ".jpg")
+                            status = imageRec.getclassids(r'./outRes/' + name_str + ".jpg")
+                            self.send_msg_txt('陌生人', status)
+                            self.send_image(
+                                r"C:\\Users\\yu146\\PycharmProjects\\FaceRec_cyu3\\src\\outRes_result\\" + name_str + ".jpg")
                         else:
-                            draw.text((face_bb[0], face_bb[1]), face.name, font=font, fill=fill_color1)
-                            print(face.name)
-            show = numpy.asarray(img_pil)
+                            draw.text((face_bb[0], face_bb[1]), face.name, font=font, fill=fillColor1)
+                            ret, frame = self.cap.read()
+                            cv2.imwrite(r'./inRes/' + name_str + ".jpg", frame)
+                            imageRec.getimage(r'./inRes/' + name_str + ".jpg", r'./inRes_result/' + name_str + ".jpg")
+                            status = imageRec.getclassids(r'./inRes/' + name_str + ".jpg")
+                            self.send_msg_txt(face.name, status)
+                            self.send_image(
+                                r"C:\\Users\\yu146\\PycharmProjects\\FaceRec_cyu3\\src\\inRes_result\\" + name_str + ".jpg")
+
+            show = numpy.asarray(img_PIL)
         # show = cv2.cvtColor(show, cv2.COLOR_BGR2RGB)
-        show_image = QtGui.QImage(show.data, show.shape[1], show.shape[0], QtGui.QImage.Format_RGB888)
-        self.showcamera.setPixmap(QtGui.QPixmap.fromImage(show_image))
+        showImage = QtGui.QImage(show.data, show.shape[1], show.shape[0], QtGui.QImage.Format_RGB888)
+        self.showcamera.setPixmap(QtGui.QPixmap.fromImage(showImage))
 
     def button_add_face_click(self):
         self.timer_camera_capture.stop()
         self.cap.release()
         self.showcamera.clear()
-        model = "20190128-123456/3001w-train.pb"
-        traindata_path = "../data/gump"
+        model = "123456/3001w-train.pb"
+        traindata_path = "../data/image"
         feature_files = []
         face_label = []
         with tf.Graph().as_default():
@@ -201,7 +359,7 @@ class Ui_MainWindow(QtWidgets.QWidget):
                         feature_files.append(emb)
                     else:
                         print('no find face')
-                write_file = open('20190128-123456/knn_classifier.pkl', 'wb')
+                write_file = open('123456/knn_classifier.pkl', 'wb')
                 pickle.dump(feature_files, write_file, -1)
                 pickle.dump(face_label, write_file, -1)
                 write_file.close()
@@ -230,21 +388,23 @@ class Ui_MainWindow(QtWidgets.QWidget):
                               (face_bb[0], face_bb[1]), (face_bb[2], face_bb[3]),
                               (0, 255, 0), 2)
         show_images = numpy.asarray(show_images)
-        showImage = QtGui.QImage(show_images.data, show_images.shape[1], show_images.shape[0], QtGui.QImage.Format_RGB888)
+        showImage = QtGui.QImage(show_images.data, show_images.shape[1], show_images.shape[0],
+                                 QtGui.QImage.Format_RGB888)
         self.showcamera.setPixmap(QtGui.QPixmap.fromImage(showImage))
 
     def save_face_click(self):
         global add_name
-        imagepath = os.sep.join(['../data/gump/', add_name + '.jpg'])
-        print('faceID is:',add_name)
+        imagepath = os.sep.join(['../data/image/', add_name + '.jpg'])
+        print('faceID is:', add_name)
         if add_name == '':
-            reply = QMessageBox.information(self,
+            reply = QMessageBox.information(self,  # 使用infomation信息框
                                             "人脸ID",
                                             "请在文本框输入人脸的ID",
                                             QMessageBox.Yes | QMessageBox.No)
         else:
             self.images = cv2.cvtColor(self.images, cv2.COLOR_RGB2BGR)
             cv2.imencode(add_name + '.jpg', self.images)[1].tofile(imagepath)
+            # cv2.imwrite('../data/gump/' + 'cyu' + '.jpg', self.images)
 
     def closeEvent(self, event):
         ok = QtWidgets.QPushButton()
@@ -268,28 +428,27 @@ class Ui_MainWindow(QtWidgets.QWidget):
             event.accept()
 
 
-def add_overlays(frame, faces):
-    if faces is not None:
-        img_pil = Image.fromarray(frame)
-        font = ImageFont.truetype('simsun.ttc', 40)
-        # 字体颜色
-        fill_color1 = (255, 0, 0)
-        fill_color2 = (0, 255, 0)
-        draw = ImageDraw.Draw(img_pil)
-        for face in faces:
-            face_bb = face.bounding_box.astype(int)
-            draw.line([face_bb[0], face_bb[1], face_bb[2], face_bb[1]], "green")
-            draw.line([face_bb[0], face_bb[1], face_bb[0], face_bb[3]], fill=128)
-            draw.line([face_bb[0], face_bb[3], face_bb[2], face_bb[3]], "yellow")
-            draw.line([face_bb[2], face_bb[1], face_bb[2], face_bb[3]], "black")
-            if face.name is not None:
-                if face.name == 'unknown':
-                    draw.text((face_bb[0], face_bb[1]), '陌生人', font=font, fill=fill_color2)
-                else:
-                    draw.text((face_bb[0], face_bb[1]), face.name, font=font, fill=fill_color1)
-                    print(u'此刻检测的人脸是：%s' % face.name)
-        frame = numpy.asarray(img_pil)
-        return frame
+# def add_overlays(frame, faces):
+#     if faces is not None:
+#         img_PIL = Image.fromarray(frame)
+#         font = ImageFont.truetype('simsun.ttc', 40)
+#         # 字体颜色
+#         fillColor1 = (255, 0, 0)
+#         fillColor2 = (0, 255, 0)
+#         draw = ImageDraw.Draw(img_PIL)
+#         for face in faces:
+#             face_bb = face.bounding_box.astype(int)
+#             draw.line([face_bb[0], face_bb[1], face_bb[2], face_bb[1]], "green")
+#             draw.line([face_bb[0], face_bb[1], face_bb[0], face_bb[3]], fill=128)
+#             draw.line([face_bb[0], face_bb[3], face_bb[2], face_bb[3]], "yellow")
+#             draw.line([face_bb[2], face_bb[1], face_bb[2], face_bb[3]], "black")
+#             if face.name is not None:
+#                 if face.name == 'unknown':
+#                     draw.text((face_bb[0], face_bb[1]), '陌生人', font=font, fill=fillColor2)
+#                 else:
+#                     draw.text((face_bb[0], face_bb[1]), '你是谁', font=font, fill=fillColor1)
+#         frame = numpy.asarray(img_PIL)
+#         return frame
 
 
 class Detection:
@@ -307,15 +466,14 @@ class Detection:
             gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.7)
             sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, log_device_placement=False))
             with sess.as_default():
-                return src.align.detect_face.create_mtcnn(sess, None)
+                return align.detect_face.create_mtcnn(sess, None)
 
     def find_faces(self, image_paths):
-        global warped
         img = misc.imread(os.path.expanduser(image_paths), mode='RGB')
         _bbox = None
         _landmark = None
-        bounding_boxes, points = src.align.detect_face.detect_face(img, self.minsize, self.pnet, self.rnet, self.onet,
-                                                                   self.threshold, self.factor)
+        bounding_boxes, points = align.detect_face.detect_face(img, self.minsize, self.pnet, self.rnet, self.onet,
+                                                               self.threshold, self.factor)
         nrof_faces = bounding_boxes.shape[0]
         img_list = []
         max_Aera = 0
@@ -335,7 +493,7 @@ class Detection:
                         max_Aera = _bbox[2] * _bbox[3]
                         _landmark = points[:, i].reshape((2, 5)).T
                         warped = face_preprocess.preprocess(img, bbox=_bbox, landmark=_landmark, image_size='112,112')
-                prewhitened = facenet.prewhiten( warped)
+                prewhitened = facenet.prewhiten(warped)
                 img_list.append(prewhitened)
         else:
             return None
@@ -347,4 +505,5 @@ if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
     ui = Ui_MainWindow()
     ui.show()
+    # ui.send_data("nihao1")
     sys.exit(app.exec_())
