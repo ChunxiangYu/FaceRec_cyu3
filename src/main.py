@@ -398,8 +398,8 @@ class Ui_MainWindow(QtWidgets.QWidget):
         print('faceID is:', add_name)
         if add_name == '':
             reply = QMessageBox.information(self,  # 使用infomation信息框
-                                            "人脸ID",
-                                            "请在文本框输入人脸的ID",
+                                            "人脸用户名",
+                                            "请在文本框输入人脸的用户名",
                                             QMessageBox.Yes | QMessageBox.No)
         else:
             self.images = cv2.cvtColor(self.images, cv2.COLOR_RGB2BGR)
